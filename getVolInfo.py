@@ -9,12 +9,14 @@ Brandon Doyle. <bdoyle@datto.com>. Last updated: November 13, 2018.
 
 Type checked with Mypy v0.641. Variable type annotations are not supported in
 Python versions <3.6, so there are 2 cases in this script where I've favored
-generality.
+generality and ignored type.
 """
 
-from typing import List, Generator, Dict, Optional, Any, Iterable
+from typing import (List, Generator, Dict, Optional, Any, Iterable,
+                    Callable as Function)
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
+from functools import wraps
 
 import re
 import argparse
@@ -56,7 +58,7 @@ class ConvertJSON:
 
     # Match these 'tokens'
     integer = r'^i:[0-9]+;?'
-    double  = r'^d:[0-9]+\.?([0-9]*)?;?' # type introduced in IBU >500?
+    double  = r'^d:[0-9]+\.?([0-9]*)?;?'  # type introduced in IBU >500 *Info's?
     string  = r'^s:[0-9]+:\"[^\"]*\";?'
     array   = r'^a:[0-9]+:{'
     boolean = r'^b:[01];?'
@@ -181,7 +183,7 @@ class ConvertJSON:
     def findAll(nestedDicts: Dict, key: Any, rvrsLookup: bool =False) -> List:
         """
         Return all occurrences of values associated with `key`, if any. Again,
-        O(n). If `rvrsLookup`, searches by value and returns the associated \
+        O(n). If `rvrsLookup`, searches by value and returns the associated
         keys. (Essentially a reverse lookup.)
         """
         occurrences = []
@@ -226,35 +228,90 @@ def getIO(command: str) -> Generator[List[str], None, None]:
     yield stdout
 
 
-def rmElements(it: Dict, els: List) -> Dict:
+def rmElements(it: Dict, els: List, rev: bool =False) -> Dict:
     """
-    Filter one container by another.
+    Filter one container by another. If `rev` is set to True, then the logic is
+    reversed.
     """
-    retIt = {}
-    for el in it:
-        if el not in els:
-            retIt = {**retIt, el : it[el]}
+    retIt = {}  # type: Dict
+
+    if rev:
+        for el in it:
+            if el in els:
+                retIt = {**retIt, el: it[el]}
+    else:
+        for el in it:
+            if el not in els:
+                retIt = {**retIt, el: it[el]}
+
     return retIt
 
 
+def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
+    """
+    Apply `rmElements` to a function, the first argument being its return value.
+
+    Level applies to depth at which to apply the filter. Could be generalized
+    for true depth-independent/flattened filtering, without losing structure.
+    """
+    def _decor(fn: Function) -> Function[[Dict], Dict[str, int]]:
+        @wraps(fn)
+        def _fn(arg: Dict) -> Dict[str, int]:
+            res = fn(arg)
+
+            def traverse(subDict: Dict, currentDepth: int =0) -> Optional[Dict]:
+                # Traverse dictionary to required level.
+                if currentDepth == level:
+                    if level == 0:
+                        # Cover base-case filtering.
+                        nonlocal res
+                        res = rmElements(subDict, els=els, rev=rev)
+                    else:
+                        return rmElements(subDict, els=els, rev=rev)
+                else:
+                    for key in subDict.keys():
+                        if isinstance(subDict[key], dict):
+                             subDict[key] = \
+                                 traverse(subDict[key], currentDepth + 1)
+
+            traverse(res)
+
+            return res
+        return _fn
+    return _decor
+
+
+@rmElementsDec(['capacity', 'used'], rev=True, level=1)
+@rmElementsDec(['BOOT', 'Recovery'], level=0)
 def windows(info: Dict) -> Dict[str, int]:
     """
     Parse *.agentInfo data and extract information about Windows' volumes.
     """
-    irrelevantVolumes = ['BOOT', 'Recovery']
     volumes = info['Volumes']
 
-    print(volumes)
+    return volumes
 
 
+@rmElementsDec(['capacity', 'used'], rev=True, level=1)
+@rmElementsDec(['<swap>'], level=0)
 def linux(info: Dict) -> Dict[str, int]:
     """
     Parse *.agentInfo data and extract information about mountpoints and disks.
     """
-    irrelevantMounts = ['<swap>']
-    mounts = rmElements(info['Volumes'], irrelevantMounts)
+    mounts = info['Volumes']
 
-    print(mounts)
+    return mounts
+
+
+def flatten(inList: List[List]) -> List:
+    """
+    Similar to Haskell's `concat :: [[a]] -> [a]`.
+    """
+    flatList = []
+    for subList in inList:
+        for string in subList:
+            flatList.append(string)
+    return flatList
 
 
 def uniq(data: Iterable) -> Iterable:
@@ -273,13 +330,14 @@ def uniq(data: Iterable) -> Iterable:
     https://github.com/python/cpython/blob/master/Lib/_collections_abc.py#L277
 
     Dictionaries are special though since the same hash can't map to two values.
+    They're already unique, but support them anyway.
     """
     tp = type(data)
 
     if tp is dict:
-        data = data.items() # type: ignore
+        return data
 
-    return tp(set(data)) # type: ignore
+    return tp(set(data))  # type: ignore
 
 
 def main() -> None:
@@ -288,7 +346,7 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(description=__doc__)
 
-    parser.add_argument('-a', '--agent', type=str,
+    parser.add_argument('-a', '--agent', type=str, action='append',
         help='Run the script on a particular agent/UUID'
     )
 
@@ -308,26 +366,32 @@ def main() -> None:
                         break
                     else:
                         print('\n** ERROR: Please make a valid selection\n')
+                uuid = [uuid]
             else:
-                uuid = args.agent
-                if uuid not in agents:
-                    print('\n** ERROR: Please make a valid selection\n')
+                uuid = args.agent  # type: List[str]
+                for id in uuid:
+                    if id not in agents:
+                        print('\n** ERROR: Please make a valid selection\n')
+                        uuid = []
 
     # Now that we have the agent, let's go print the information we need.
-    for snap in os.listdir(agentMountpoint + uuid + '/.zfs/snapshot/'):
-        path = infoPath(uuid, snap)
-        if os.path.isfile(path):
-            with ConvertJSON(path) as info:
-                if 'type' in info:
-                    # Linux
-                    linux(info)
-                elif info['os'].lower().startswith('windows'):
-                    # Windows (is there a better validation?)
-                    windows(info)
-                else:
-                    # Mac OS, other ?
-                    raise UnsupportedOSError('Received {}'.format(info['os']))
+    for id in uuid:
+        snaps = []
+        for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
+            path = infoPath(id, snap)
+            if os.path.isfile(path):
+                with ConvertJSON(path) as info:
+                    if 'type' in info:
+                        # Linux
+                        snaps.append(linux(info))
+                    elif info['os'].lower().startswith('windows'):
+                        # Windows (is there a better validation?)
+                        snaps.append(windows(info))
+                    else:
+                        # Mac OS, other ?
+                        raise UnsupportedOSError('Received {}'.format(info['os']))
 
+        print(snaps)
 
 
 if __name__ == '__main__':
