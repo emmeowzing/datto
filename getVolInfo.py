@@ -378,8 +378,6 @@ def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
                         )
         allSnaps.append(snaps)
 
-        print(snaps)
-
     return allSnaps
 
 
@@ -402,7 +400,7 @@ class PresentNiceColumns:
                 for volume in snap:
                     used = snap[volume]['used']
                     capacity = snap[volume]['capacity']
-                    print(volume, self.scale(used, self.binary),
+                    print(volume+ '-', self.scale(used, self.binary),
                           self.scale(capacity, self.binary), end='  ', sep=' ')
                 else:
                     print()
@@ -421,18 +419,30 @@ class PresentNiceColumns:
 
         if binary:
             fixes = [fix + 'i' for fix in fixes]
+
+            if bts == 0:
+                return '0.00 Ki'
+
+            for magnitude, prefix in zip(range(len(fixes)), fixes):
+                if 2 ** (10 * magnitude) <= bts < 2 ** (10 * (magnitude + 1)):
+                    return '{0:>2.2f}{1}'.format(bts / 2 ** (10 * magnitude), prefix)
+            else:
+                raise ValueError(
+                    'Number of bytes to large for ZFS, received {}'.format(bts)
+                )
         else:
-            fixes = [fix + 'B' for fix in fixes]
+            fixes = ['B '] + [fix + 'B' for fix in fixes]
 
-        value = ''
+            if bts == 0:
+                return '0.00 KB'
 
-        for magnitude, prefix in zip(range(len(fixes)), fixes):
-            print('{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix))
-            if 2 ** magnitude <= bts < 2 ** (magnitude + 1):
-                value = '{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix)
-                break
-
-        return value
+            for magnitude, prefix in zip(range(len(fixes)), fixes):
+                if 10 ** (3 * magnitude) <= bts < 10 ** (3 * (magnitude + 1)):
+                    return '{0:>2.2f}{1}'.format(bts / 10 ** (3 * magnitude), prefix)
+            else:
+                raise ValueError(
+                    'Number of bytes to large for ZFS, received {}'.format(bts)
+                )
 
 
 def main() -> None:
@@ -446,7 +456,7 @@ def main() -> None:
         help='Run the script on particular agent(s)/UUID(s)'
     )
 
-    parser.add_argument('-m', '--metric', type=bool, default='store_true',
+    parser.add_argument('-m', '--metric', default=True, action='store_false',
         help='Present the columns in base-10 (HD/metric) magnitude rather '
              'than the default binary output.'
     )
@@ -462,7 +472,7 @@ def main() -> None:
                 # List agents by UUID, ask the user for input.
                 while True:
                     print(*agents, sep='\n', end='\n\n')
-                    uuid = input('Please select an agent: ').lower()
+                    uuid = input('Agent: ').lower()
                     if uuid in agents:
                         break
                     else:
@@ -475,7 +485,7 @@ def main() -> None:
                         break
                 allSnaps = getInfo(list(args.agent))
 
-    PresentNiceColumns(allSnaps).render()
+    PresentNiceColumns(allSnaps, binary=args.metric).render()
 
 
 if __name__ == '__main__':
