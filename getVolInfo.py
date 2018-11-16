@@ -9,13 +9,15 @@ r"""
     in Python versions <3.6, so there's 1 case in this script where I've
     favored generality and ignored type.
 
+        $ mypy --strict getVol.py
+
     Brandon Doyle <bdoyle@datto.com>.
 
     Last updated: November 16, 2018.
 """
 
 from typing import (List, Generator, Dict, Optional, Any, Iterable,
-                    Callable as Function, TypeVar)
+                    Callable as Function)
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
 from functools import wraps
@@ -28,8 +30,11 @@ import os
 newlines = re.compile(r'\n+')
 
 agentMountpoint = '/home/agents/'
-infoPath = lambda uuid, snap: agentMountpoint + uuid + '/.zfs/snapshot/' \
-                                + snap + '/' + uuid + '.agentInfo'
+
+
+def infoPath(uuid: str, snap: str) -> str:
+    return agentMountpoint + uuid + '/.zfs/snapshot/' + snap + '/' + uuid \
+           + '.agentInfo'
 
 
 class InvalidArrayFormat(SyntaxError):
@@ -209,7 +214,7 @@ class ConvertJSON:
     def __enter__(self) -> Dict:
         return self.decode()
 
-    def __exit__(self, *args) -> Any:
+    def __exit__(self, *args: Any) -> Any:
         pass
 
 
@@ -257,7 +262,7 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
     Level applies to depth at which to apply the filter. Could be generalized
     for true depth-independent/flattened filtering, without losing structure.
     """
-    def _decor(fn: Function) -> Function[[Dict], Dict[str, int]]:
+    def _decor(fn: Function[..., Dict[str, int]]) -> Function[[Dict], Dict[str, int]]:
         @wraps(fn)
         def _fn(arg: Dict) -> Dict[str, int]:
             res = fn(arg)
@@ -401,6 +406,7 @@ class PresentNiceColumns:
                           self.scale(capacity, self.binary), end='  ', sep=' ')
                 else:
                     print()
+        return None
 
     @staticmethod
     def scale(bts: int, binary: bool =True) -> str:
@@ -418,9 +424,15 @@ class PresentNiceColumns:
         else:
             fixes = [fix + 'B' for fix in fixes]
 
+        value = ''
+
         for magnitude, prefix in zip(range(len(fixes)), fixes):
+            print('{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix))
             if 2 ** magnitude <= bts < 2 ** (magnitude + 1):
-                return '{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix)
+                value = '{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix)
+                break
+
+        return value
 
 
 def main() -> None:
@@ -463,7 +475,7 @@ def main() -> None:
                         break
                 allSnaps = getInfo(list(args.agent))
 
-    print(PresentNiceColumns(allSnaps).render())
+    PresentNiceColumns(allSnaps).render()
 
 
 if __name__ == '__main__':
