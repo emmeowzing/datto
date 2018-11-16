@@ -1,19 +1,21 @@
 #! /usr/bin/env python3.5
 # -*- coding: utf-8 -*-
 
-"""
-Simple script to present included volumes/mountpoints and space data in a nice
-format.
+r"""
+    Simple script to present included volumes/mountpoints and space data in a
+    nice format.
 
-Brandon Doyle. <bdoyle@datto.com>. Last updated: November 16, 2018.
+    Type checked with Mypy v0.641. Variable type annotations are not supported
+    in Python versions <3.6, so there's 1 case in this script where I've
+    favored generality and ignored type.
 
-Type checked with Mypy v0.641. Variable type annotations are not supported in
-Python versions <3.6, so there are 2 cases in this script where I've favored
-generality and ignored type.
+    Brandon Doyle <bdoyle@datto.com>.
+
+    Last updated: November 16, 2018.
 """
 
 from typing import (List, Generator, Dict, Optional, Any, Iterable,
-                    Callable as Function)
+                    Callable as Function, TypeVar)
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
 from functools import wraps
@@ -82,6 +84,7 @@ class ConvertJSON:
         Map serialized JSON -> Dict.
         """
         if key:
+            # Overwrite.
             self.key = key
         else:
             if not self.key:
@@ -260,12 +263,17 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
             res = fn(arg)
 
             def traverse(subDict: Dict, currentDepth: int =0) -> Optional[Dict]:
-                # Traverse dictionary to required level.
+                """
+                Traverse nested dictionaries to the necessary level before
+                filtering by `els`. Had an issue typing this, but apparently
+                """
                 if currentDepth == level:
                     if level == 0:
                         # Cover base-case filtering.
                         nonlocal res
                         res = rmElements(subDict, els=els, rev=rev)
+                        # PEP 8 :/
+                        return None
                     else:
                         return rmElements(subDict, els=els, rev=rev)
                 else:
@@ -273,6 +281,8 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
                         if isinstance(subDict[key], dict):
                              subDict[key] = \
                                  traverse(subDict[key], currentDepth + 1)
+                    else:
+                        return None
 
             traverse(res)
 
@@ -283,35 +293,30 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
 
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
 @rmElementsDec(['BOOT', 'Recovery'], level=0)
-def windows(info: Dict) -> Dict[str, int]:
+def windows(info: Dict) -> Dict[str, Dict[str, int]]:
     """
     Extract information about Windows' volumes.
     """
     volumes = info['Volumes']
+
+    # As an annoying aside, it appears *Info keys associated with Windows use a
+    # string type for `capacity` data and integers for `used`, whereas in Linux
+    # *Info keys, integer type is used for both. :/
+    for volume in volumes:
+        volumes[volume]['capacity'] = int(volumes[volume]['capacity'])
 
     return volumes
 
 
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
 @rmElementsDec(['<swap>'], level=0)
-def linux(info: Dict) -> Dict[str, int]:
+def linux(info: Dict) -> Dict[str, Dict[str, int]]:
     """
     Extract information about mountpoints and disks.
     """
     mounts = info['Volumes']
 
     return mounts
-
-
-def flatten(inList: List[List]) -> List:
-    """
-    Similar to Haskell's `concat :: [[a]] -> [a]`.
-    """
-    flatList = []
-    for subList in inList:
-        for string in subList:
-            flatList.append(string)
-    return flatList
 
 
 def uniq(data: Iterable) -> Iterable:
@@ -331,6 +336,8 @@ def uniq(data: Iterable) -> Iterable:
 
     Dictionaries are special though since the same hash can't map to two values.
     They're already unique, but support them anyway.
+
+    Perhaps this type issue can be cleared up with a  type variable?
     """
     tp = type(data)
 
@@ -340,11 +347,13 @@ def uniq(data: Iterable) -> Iterable:
     return tp(set(data))  # type: ignore
 
 
-def getInfo(uuid: Optional[List[str]] =None) -> None:
+def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
     """
     Collect information and print it to the terminal.
     """
     # Now that we have the agent, let's go print the information we need.
+    allSnaps = []
+
     for id in uuid:
         snaps = []
         for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
@@ -352,26 +361,82 @@ def getInfo(uuid: Optional[List[str]] =None) -> None:
             if os.path.isfile(path):
                 with ConvertJSON(path) as info:
                     if 'type' in info:
-                        # Linux
+                        # Linux (info[type] => 'linux')
                         snaps.append(linux(info))
                     elif info['os'].lower().startswith('windows'):
                         # Windows (is there a better validation?)
                         snaps.append(windows(info))
                     else:
                         # Mac OS, other ?
-                        raise UnsupportedOSError('Received {}'.format(info['os']))
+                        raise UnsupportedOSError(
+                            'Received {}'.format(info['os'])
+                        )
+        allSnaps.append(snaps)
 
         print(snaps)
+
+    return allSnaps
+
+
+class PresentNiceColumns:
+    """
+    Present
+    """
+    def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
+                       binary: bool =True) -> None:
+        self.allSnaps = allSnaps
+        self.binary = binary
+
+    def render(self) -> None:
+        """
+        Additively build each line of output. This is generated every time
+        instead of storing the result in memory.
+        """
+        for agent in self.allSnaps:
+            for snap in agent:
+                for volume in snap:
+                    used = snap[volume]['used']
+                    capacity = snap[volume]['capacity']
+                    print(volume, self.scale(used, self.binary),
+                          self.scale(capacity, self.binary), end='  ', sep=' ')
+                else:
+                    print()
+
+    @staticmethod
+    def scale(bts: int, binary: bool =True) -> str:
+        """
+        Format volume used/capacity values to the correct binary or metric
+        magnitude (and hence prefix).
+        """
+        if bts < 0:
+            raise ValueError('Expected value >=0, received {}'.format(bts))
+
+        fixes = ['K', 'M', 'G', 'T', 'P', 'E', 'Z']
+
+        if binary:
+            fixes = [fix + 'i' for fix in fixes]
+        else:
+            fixes = [fix + 'B' for fix in fixes]
+
+        for magnitude, prefix in zip(range(len(fixes)), fixes):
+            if 2 ** magnitude <= bts < 2 ** (magnitude + 1):
+                return '{0:.2f} {1}'.format(bts / 2 ** magnitude, prefix)
 
 
 def main() -> None:
     """
     Get user input. Set up process.
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-a', '--agent', type=str, action='append',
-        help='Run the script on a particular agent/UUID'
+        help='Run the script on particular agent(s)/UUID(s)'
+    )
+
+    parser.add_argument('-m', '--metric', type=bool, default='store_true',
+        help='Present the columns in base-10 (HD/metric) magnitude rather '
+             'than the default binary output.'
     )
 
     args = parser.parse_args()
@@ -390,13 +455,15 @@ def main() -> None:
                         break
                     else:
                         print('\n** ERROR: Please make a valid selection\n')
+                allSnaps = getInfo([uuid])
             else:
-                uuid = args.agent  # type: List[str]
-                for id in uuid:
+                for id in args.agent:
                     if id not in agents:
                         print('\n** ERROR: Please make a valid selection\n')
+                        break
+                allSnaps = getInfo(list(args.agent))
 
-    getInfo(uuid)
+    print(PresentNiceColumns(allSnaps).render())
 
 
 if __name__ == '__main__':
