@@ -5,7 +5,7 @@
 Simple script to present included volumes/mountpoints and space data in a nice
 format.
 
-Brandon Doyle. <bdoyle@datto.com>. Last updated: November 13, 2018.
+Brandon Doyle. <bdoyle@datto.com>. Last updated: November 16, 2018.
 
 Type checked with Mypy v0.641. Variable type annotations are not supported in
 Python versions <3.6, so there are 2 cases in this script where I've favored
@@ -285,7 +285,7 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
 @rmElementsDec(['BOOT', 'Recovery'], level=0)
 def windows(info: Dict) -> Dict[str, int]:
     """
-    Parse *.agentInfo data and extract information about Windows' volumes.
+    Extract information about Windows' volumes.
     """
     volumes = info['Volumes']
 
@@ -296,7 +296,7 @@ def windows(info: Dict) -> Dict[str, int]:
 @rmElementsDec(['<swap>'], level=0)
 def linux(info: Dict) -> Dict[str, int]:
     """
-    Parse *.agentInfo data and extract information about mountpoints and disks.
+    Extract information about mountpoints and disks.
     """
     mounts = info['Volumes']
 
@@ -340,6 +340,30 @@ def uniq(data: Iterable) -> Iterable:
     return tp(set(data))  # type: ignore
 
 
+def getInfo(uuid: Optional[List[str]] =None) -> None:
+    """
+    Collect information and print it to the terminal.
+    """
+    # Now that we have the agent, let's go print the information we need.
+    for id in uuid:
+        snaps = []
+        for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
+            path = infoPath(id, snap)
+            if os.path.isfile(path):
+                with ConvertJSON(path) as info:
+                    if 'type' in info:
+                        # Linux
+                        snaps.append(linux(info))
+                    elif info['os'].lower().startswith('windows'):
+                        # Windows (is there a better validation?)
+                        snaps.append(windows(info))
+                    else:
+                        # Mac OS, other ?
+                        raise UnsupportedOSError('Received {}'.format(info['os']))
+
+        print(snaps)
+
+
 def main() -> None:
     """
     Get user input. Set up process.
@@ -366,32 +390,13 @@ def main() -> None:
                         break
                     else:
                         print('\n** ERROR: Please make a valid selection\n')
-                uuid = [uuid]
             else:
                 uuid = args.agent  # type: List[str]
                 for id in uuid:
                     if id not in agents:
                         print('\n** ERROR: Please make a valid selection\n')
-                        uuid = []
 
-    # Now that we have the agent, let's go print the information we need.
-    for id in uuid:
-        snaps = []
-        for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
-            path = infoPath(id, snap)
-            if os.path.isfile(path):
-                with ConvertJSON(path) as info:
-                    if 'type' in info:
-                        # Linux
-                        snaps.append(linux(info))
-                    elif info['os'].lower().startswith('windows'):
-                        # Windows (is there a better validation?)
-                        snaps.append(windows(info))
-                    else:
-                        # Mac OS, other ?
-                        raise UnsupportedOSError('Received {}'.format(info['os']))
-
-        print(snaps)
+    getInfo(uuid)
 
 
 if __name__ == '__main__':
