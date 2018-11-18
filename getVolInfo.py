@@ -296,6 +296,10 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
     return _decor
 
 
+## Grab volumes/mountpoints we need as well as remove those properties therein
+## that we don't need.
+
+
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
 @rmElementsDec(['BOOT', 'Recovery'], level=0)
 def windows(info: Dict) -> Dict[str, Dict[str, int]]:
@@ -389,6 +393,11 @@ class PresentNiceColumns:
                        binary: bool =True) -> None:
         self.allSnaps = allSnaps
         self.binary = binary
+        self.fixes = [fix + ('i' if self.binary else 'B') for fix in
+                      ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
+
+    def __repr__(self) -> None:
+        self.render()
 
     def render(self) -> None:
         """
@@ -396,18 +405,36 @@ class PresentNiceColumns:
         instead of storing the result in memory.
         """
         for agent in self.allSnaps:
+            # Scale used/capacity values.
+            for snap in agent:
+                for volume in snap:
+                    snap[volume]['used'] = self.scale(snap[volume]['used'])
+                    snap[volume]['capacity'] = self.scale(snap[volume]['used'])
+
+            # Get column widths for this agent prior to presentation.
+            nCols = 4 * len(agent[0])
+            colWidths = [0] * nCols
+
+            for i in range(nCols):
+                for snap in agent:
+                    print(snap)
+
+            # Now print this information to the terminal.
             for snap in agent:
                 for volume in snap:
                     used = snap[volume]['used']
                     capacity = snap[volume]['capacity']
-                    print(volume+ '-', self.scale(used, self.binary),
-                          self.scale(capacity, self.binary), end='  ', sep=' ')
+                    print(volume + '-',
+                          used,
+                          capacity,
+                          '{0:.1f}%'.format(float(used) / float(capacity)),
+                          end='  ',
+                          sep=' ')
                 else:
                     print()
         return None
 
-    @staticmethod
-    def scale(bts: int, binary: bool =True) -> str:
+    def scale(self, bts: int) -> str:
         """
         Format volume used/capacity values to the correct binary or metric
         magnitude (and hence prefix).
@@ -415,34 +442,35 @@ class PresentNiceColumns:
         if bts < 0:
             raise ValueError('Expected value >=0, received {}'.format(bts))
 
-        fixes = ['K', 'M', 'G', 'T', 'P', 'E', 'Z']
-
-        if binary:
-            fixes = [fix + 'i' for fix in fixes]
-
+        # FIXME: Widths are off.
+        if self.binary:
             if bts == 0:
                 return '0.00 Ki'
 
-            for magnitude, prefix in zip(range(len(fixes)), fixes):
+            for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 2 ** (10 * magnitude) <= bts < 2 ** (10 * (magnitude + 1)):
-                    return '{0:>2.2f}{1}'.format(bts / 2 ** (10 * magnitude), prefix)
+                    return '{0:.2f}{1}'.format(bts / 2 ** (10 * magnitude),
+                                                 prefix)
             else:
                 raise ValueError(
                     'Number of bytes to large for ZFS, received {}'.format(bts)
                 )
         else:
-            fixes = ['B '] + [fix + 'B' for fix in fixes]
-
             if bts == 0:
                 return '0.00 KB'
 
-            for magnitude, prefix in zip(range(len(fixes)), fixes):
+            for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 10 ** (3 * magnitude) <= bts < 10 ** (3 * (magnitude + 1)):
-                    return '{0:>2.2f}{1}'.format(bts / 10 ** (3 * magnitude), prefix)
+                    return '{0:.2f}{1}'.format(bts / 10 ** (3 * magnitude),
+                                                 prefix)
             else:
                 raise ValueError(
                     'Number of bytes to large for ZFS, received {}'.format(bts)
                 )
+
+    @staticmethod
+    def getMaxWidth():
+        ...
 
 
 def main() -> None:
