@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 r"""
-    Simple script to present included volumes/mountpoints and space data in a
+    Pesent included volumes/mountpoints and space data in a
     nice format.
 
     Possible to use/pipe output from this script as well; e.g.,
