@@ -402,7 +402,7 @@ class PresentNiceColumns:
                        smart: bool =False) -> None:
         self.allSnaps = allSnaps
         self.binary = binary
-        self.fixes = ['B'] + [fix + ('i' if self.binary else 'B')
+        self.fixes = ['B '] + [fix + ('i' if self.binary else 'B')
                       for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
         self.noscale = noscale
         self.smart = smart
