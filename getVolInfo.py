@@ -16,6 +16,7 @@ r"""
     Last updated: November 16, 2018.
 """
 
+
 from typing import (List, Generator, Dict, Optional, Any, Iterable,
                     Callable as Function)
 from subprocess import Popen, PIPE
@@ -296,8 +297,7 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
     return _decor
 
 
-## Filter volume info and select/reject those entries we don't need.
-
+# Filter volume info and select/reject those entries we don't need.
 
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
 @rmElementsDec(['BOOT', 'Recovery'], level=0)
@@ -362,17 +362,17 @@ class PresentNiceColumns:
     favorite part of this script :/ So ugly.
     """
     def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
-                       binary: bool =True) -> None:
+                       binary: bool =True, noscale: bool =False) -> None:
         self.allSnaps = allSnaps
         self.binary = binary
         self.fixes = [fix + ('i' if self.binary else 'B')
                       for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
+        self.noscale = noscale
 
     def render(self) -> None:
         """
         Print these agents' snapshots in nice visual columns.
         """
-
         for agent in self.allSnaps:
             # Type safe conversion/storage of the former dictionary.
             _agent = []  # type: List[Dict[str, Dict[str, str]]]
@@ -382,15 +382,19 @@ class PresentNiceColumns:
             colWidths = [0] * nCols
 
             for snap in agent:
-                # Type checks because OrderedDict <: Dict; cf.
+                # Type checks because OrderedDict <: Dict.
                 _snap = OrderedDict()  # type: Dict[str, Dict[str, str]]
                 for volume in snap:
                     _used = snap[volume]['used']
-                    used = self.scale(_used)
                     _capacity = snap[volume]['capacity']
-                    capacity = self.scale(_capacity)
+                    if self.noscale:
+                        used = str(_used)
+                        capacity = str(_capacity)
+                    else:
+                        used = self.scale(_used)
+                        capacity = self.scale(_capacity)
 
-                    # Create new ordered entry. Python 3.5's dictionaries don't
+                    # Build new ordered entry. Python 3.5's dictionaries don't
                     # maintain their order, so we must explicitly create an
                     # ordered dictionary for the convenience. (Uses an internal
                     # doubly-linked list data structure).
@@ -434,7 +438,7 @@ class PresentNiceColumns:
 
             for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 2 ** (10 * magnitude) <= bts < 2 ** (10 * (magnitude + 1)):
-                    bts /= 2 ** (10 * magnitude)
+                    bts /= (2 ** (10 * magnitude))
                     return '{0:.2f}{1}'.format(bts, prefix)
         else:
             if bts == 0:
@@ -480,10 +484,22 @@ def main() -> None:
         help='Run the script on particular agent(s)/UUID(s)'
     )
 
-    parser.add_argument('-m', '--metric', default=True, action='store_false',
+    # Cannot call both --metric and --noscale.
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument('-m', '--metric', default=True, action='store_false',
         help='Present the columns in base-10 (HD/metric) magnitude rather '
              'than the default binary output.'
     )
+
+    group.add_argument('-n', '--noscale', default=False, action='store_true',
+        help='Do not scale byte counts (for later processing/plotting)'
+    )
+
+    #parser.add_argument('-s', '--smart', default=False, action='store_true',
+    #    help='Provide \'smart\' indicators that requirements aren\'t satisfied'
+    #         ' or volumes have changed size [!^v]'
+    #)
 
     args = parser.parse_args()
 
@@ -509,9 +525,9 @@ def main() -> None:
                         break
                 allSnaps = getInfo(list(args.agent))
 
-    ## allSnaps :: List[List[Dict[str, Dict[str, int]]]]
-
-    PresentNiceColumns(allSnaps, binary=args.metric).render()
+    # allSnaps :: List[List[Dict[str, Dict[str, int]]]]
+    
+    PresentNiceColumns(allSnaps, binary=args.metric, noscale=args.noscale).render()
 
 
 if __name__ == '__main__':
