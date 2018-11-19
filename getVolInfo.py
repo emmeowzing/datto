@@ -50,7 +50,7 @@ def time(epoch: int) -> str:
     """
     Convert Linux epoch time to a UTC string.
     """
-    return datetime.utcfromtimestamp(epoch).strftime('%Y-%m-%d %H:%M')
+    return datetime.utcfromtimestamp(epoch).strftime('%d-%m-%Y %H:%M')
 
 
 @contextmanager
@@ -211,8 +211,11 @@ class Color:
     """
     `xterm` colors for coloring fonts written to stdout.
     """
-    def __init__(self, color: str) -> None:
+    def __init__(self, color: str, string: str ='') -> None:
         self.color = color
+        self.string = string
+
+    ## Colors
 
     @classmethod
     def red(cls: Type['Color']) -> 'Color':
@@ -222,8 +225,18 @@ class Color:
     def blue(cls: Type['Color']) -> 'Color':
         return cls('\033[34m')
 
+    @classmethod
+    def yellow(cls: Type['Color']) -> 'Color':
+        return cls('\033[33m')
+
+    ## Effects
+
+    @classmethod
+    def bold(cls: Type['Color']) -> 'Color':
+        return cls('\033[1m')
+
     def __enter__(self) -> None:
-        print(self.color, end='', sep='')
+        print(self.color + self.string, end='', sep='')
 
     def __exit__(self, *args: Any) -> Any:
         print('\033[0m', end='', sep='')
@@ -398,20 +411,22 @@ class PresentNiceColumns:
     favorite part of this script :/ So ugly.
     """
     def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
+                       uuids: List[str],
                        binary: bool =True, noscale: bool =False,
-                       smart: bool =False) -> None:
+                       color: bool =True) -> None:
         self.allSnaps = allSnaps
+        self.uuids = uuids
         self.binary = binary
         self.fixes = ['B '] + [fix + ('i' if self.binary else 'B')
                       for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
         self.noscale = noscale
-        self.smart = smart
+        self.color = color
 
     def render(self) -> None:
         """
         Print these agents' snapshots in nice visual columns.
         """
-        for agent in self.allSnaps:
+        for uuid, agent in zip(self.uuids, self.allSnaps):
             # Type safe conversion/storage of the former dictionary.
             _agent = []  # type: List[Dict[str, Dict[str, str]]]
 
@@ -432,10 +447,7 @@ class PresentNiceColumns:
                         used = self.scale(_used)
                         capacity = self.scale(_capacity)
 
-                    # Build new ordered entry. Python 3.5's dictionaries don't
-                    # maintain their order, so we must explicitly create an
-                    # ordered dictionary for the convenience. (Uses an internal
-                    # doubly-linked list data structure).
+                    # Build new ordered entry.
                     vol = volume + '-'
                     _snap[vol] = OrderedDict()
                     _snap[vol]['used'] = str(used)
@@ -452,19 +464,28 @@ class PresentNiceColumns:
                     if colWidths[i] < width:
                         colWidths[i] = width
 
-            # Now print these columns with proper widths to the terminal.
-            for _snap in _agent:
-                snapshot = self._flatten(_snap)
-                for i, column in enumerate(snapshot):
-                    if i % 4 == 0 and i != 0:
-                        print(' ', end='')
-                    if i % 4 == 0:
-                        with Color.red():
+            with getIO('zfs list -t snapshot -Hro name homePool/home/agents/'
+                       + uuid + '| grep -oP "(?<=@)[^\s]+"') as epochs:
+                # Now print these columns with proper widths to the terminal.
+                for epoch, _snap in zip(epochs, _agent):
+                    # Print the converted epoch time.
+                    if self.color:
+                        with Color.bold():
+                            print(time(int(epoch)) + ' ~', sep='', end=' ')
+                    else:
+                        print(time(int(epoch)) + ' ~', sep='', end=' ')
+                    snapshot = self._flatten(_snap)
+
+                    for i, column in enumerate(snapshot):
+                        if i % 4 == 0 and i != 0:
+                            print(' ', end='')
+                        if i % 4 == 0 and self.color:
+                            with Color.red():
+                                print(self._extend(column, colWidths[i]), end=' ')
+                        else:
                             print(self._extend(column, colWidths[i]), end=' ')
                     else:
-                        print(self._extend(column, colWidths[i]), end=' ')
-                else:
-                    print()
+                        print()
 
     def scale(self, bts: int) -> str:
         """
@@ -523,7 +544,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-a', '--agent', type=str, action='append',
-        help='Run the script on particular agent(s)/UUID(s)'
+        help='Run the script on particular agent(s)/UUID(s).'
+    )
+
+    parser.add_argument('-c', '--color', default=True, action='store_false',
+        help='Do not color output.'
     )
 
     # Cannot call both --metric and --noscale.
@@ -535,7 +560,7 @@ def main() -> None:
     )
 
     group.add_argument('-n', '--noscale', default=False, action='store_true',
-        help='Do not scale byte counts (for later processing/plotting)'
+        help='Do not scale byte counts (for later processing/plotting).'
     )
 
     args = parser.parse_args()
@@ -543,7 +568,7 @@ def main() -> None:
     # Just some basic control-flow to get an agent that actually exists.
     with getIO('zfs list -Ho name | grep -oP "(?<=(agents\/))[^\s]+"') as agents:
         if not agents:
-            raise InvalidAgentNumberError()
+            raise InvalidAgentNumberError('No agents found: {}'.format(agents))
         else:
             if not args.agent:
                 # List agents by UUID, ask the user for input.
@@ -555,16 +580,20 @@ def main() -> None:
                     else:
                         print('\n** ERROR: Please make a valid selection\n')
                 allSnaps = getInfo([uuid])
+                uuids = [uuid]
             else:
                 for id in args.agent:
                     if id not in agents:
                         print('\n** ERROR: Please make a valid selection\n')
                         break
                 allSnaps = getInfo(list(args.agent))
+                uuids = list(args.agent)
 
     # allSnaps :: List[List[Dict[str, Dict[str, int]]]]
 
-    PresentNiceColumns(allSnaps, binary=args.metric, noscale=args.noscale).render()
+    PresentNiceColumns(allSnaps, uuids, binary=args.metric,
+                       noscale=args.noscale,
+                       color=args.color).render()
 
 
 if __name__ == '__main__':
