@@ -13,7 +13,7 @@ r"""
 
     Brandon Doyle <bdoyle@datto.com>.
 
-    Last updated: November 16, 2018.
+    Last updated: November 19, 2018.
 """
 
 
@@ -438,7 +438,7 @@ class PresentNiceColumns:
 
             for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 2 ** (10 * magnitude) <= bts < 2 ** (10 * (magnitude + 1)):
-                    bts /= (2 ** (10 * magnitude))
+                    bts /= 2 ** (10 * magnitude)
                     return '{0:.2f}{1}'.format(bts, prefix)
         else:
             if bts == 0:
@@ -526,7 +526,7 @@ def main() -> None:
                 allSnaps = getInfo(list(args.agent))
 
     # allSnaps :: List[List[Dict[str, Dict[str, int]]]]
-    
+
     PresentNiceColumns(allSnaps, binary=args.metric, noscale=args.noscale).render()
 
 
