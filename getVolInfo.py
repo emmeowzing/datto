@@ -5,6 +5,12 @@ r"""
     Simple script to present included volumes/mountpoints and space data in a
     nice format.
 
+    Possible to use/pipe output from this script as well; e.g.,
+
+        $ ./getVolInfo.py --agent <some_agent> | grep -P "[^\s]+(?=-)"
+
+    will highlight volumes.
+
     Type checked with Mypy v0.641. Variable type annotations are not supported
     in Python versions <3.6, so there's 1 case in this script where I've
     favored generality and ignored type.
@@ -18,11 +24,12 @@ r"""
 
 
 from typing import (List, Generator, Dict, Optional, Any, Iterable,
-                    Callable as Function)
+                    Callable as Function, Type)
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
 from functools import wraps
 from collections import OrderedDict
+from datetime import datetime
 
 import re
 import argparse
@@ -37,6 +44,149 @@ agentMountpoint = '/home/agents/'
 def infoPath(uuid: str, snap: str) -> str:
     return agentMountpoint + uuid + '/.zfs/snapshot/' + snap + '/' + uuid \
            + '.agentInfo'
+
+
+def time(epoch: int) -> str:
+    """
+    Convert Linux epoch time to a UTC string.
+    """
+    return datetime.utcfromtimestamp(epoch).strftime('%Y-%m-%d %H:%M')
+
+
+@contextmanager
+def getIO(command: str) -> Generator[List[str], None, None]:
+    """
+    Get results from terminal commands as lists of lines of text.
+    """
+    with Popen(command, shell=True, stdout=PIPE, stderr=PIPE) as proc:
+        stdout, stderr = proc.communicate()
+
+    if stderr:
+        raise ValueError('Command exited with errors: {}'.format(stderr))
+
+    if stdout:
+        # For some reason, `shell=True` likes to yield an empty string.
+        stdout = re.split(newlines, stdout.decode())[:-1]
+
+    yield stdout
+
+
+def rmElements(it: Dict, els: List, rev: bool =False) -> Dict:
+    """
+    Filter one container by another. If `rev` is set to True, then the logic is
+    reversed.
+    """
+    retIt = {}  # type: Dict
+
+    if rev:
+        for el in it:
+            if el in els:
+                retIt = {**retIt, el: it[el]}
+    else:
+        for el in it:
+            if el not in els:
+                retIt = {**retIt, el: it[el]}
+
+    return retIt
+
+
+def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
+    """
+    Apply `rmElements` to a function, the first argument being its return value.
+
+    Level applies to depth at which to apply the filter. Could be generalized
+    for true depth-independent/flattened filtering, without losing structure.
+    """
+    def _decor(fn: Function[..., Dict[str, int]]) -> Function[[Dict], Dict[str, int]]:
+        @wraps(fn)
+        def _fn(arg: Dict) -> Dict[str, int]:
+            res = fn(arg)
+
+            def traverse(subDict: Dict, currentDepth: int =0) -> Optional[Dict]:
+                """
+                Traverse nested dictionaries to the necessary level before
+                filtering by `els`.
+                """
+                if currentDepth == level:
+                    if level == 0:
+                        # Cover base-case filtering.
+                        nonlocal res
+                        res = rmElements(subDict, els=els, rev=rev)
+                        return None
+                    else:
+                        return rmElements(subDict, els=els, rev=rev)
+                else:
+                    for key in subDict.keys():
+                        if isinstance(subDict[key], dict):
+                             subDict[key] = \
+                                 traverse(subDict[key], currentDepth + 1)
+                    else:
+                        return None
+
+            traverse(res)
+
+            return res
+        return _fn
+    return _decor
+
+
+# Filter volume info and select/reject those entries we don't need.
+
+@rmElementsDec(['capacity', 'used'], rev=True, level=1)
+@rmElementsDec(['BOOT', 'Recovery'], level=0)
+def windows(info: Dict) -> Dict[str, Dict[str, int]]:
+    """
+    Extract information about Windows' volumes.
+    """
+    volumes = info['Volumes']  # type: Dict[str, Dict[str, int]]
+
+    # As an annoying aside, it appears *Info keys associated with Windows use a
+    # string type for `capacity` data and integers for `used`, whereas in Linux
+    # *Info keys, integer type is used for both. :/
+    for volume in volumes:
+        volumes[volume]['capacity'] = int(volumes[volume]['capacity'])
+
+    return volumes
+
+
+@rmElementsDec(['capacity', 'used'], rev=True, level=1)
+@rmElementsDec(['<swap>'], level=0)
+def linux(info: Dict) -> Dict[str, Dict[str, int]]:
+    """
+    Extract information about mountpoints and disks.
+    """
+    mounts = info['Volumes']  # type: Dict[str, Dict[str, int]]
+
+    return mounts
+
+
+def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
+    """
+    Collect information about a UUID/agent and print it to the terminal.
+    """
+    # Now that we have the agent, let's go print the information we need.
+    allSnaps = []
+
+    for id in uuid:
+        snaps = []
+        for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
+            path = infoPath(id, snap)
+            if os.path.isfile(path):
+                with ConvertJSON(path) as info:
+                    if 'type' in info:
+                        # Linux (info[type] => 'linux')
+                        snaps.append(linux(info))
+                    elif info['os'].lower().startswith('windows'):
+                        # Windows (is there a better validation?)
+                        snaps.append(windows(info))
+                    else:
+                        # Mac OS, other ?
+                        raise UnsupportedOSError(
+                            'Received {}'.format(info['os'])
+                        )
+        allSnaps.append(snaps)
+
+    return allSnaps
 
 
 class InvalidArrayFormat(SyntaxError):
@@ -55,6 +205,28 @@ class InvalidAgentNumberError(ValueError):
     """
     Raised when there are no agents on the appliance.
     """
+
+
+class Color:
+    """
+    `xterm` colors for coloring fonts written to stdout.
+    """
+    def __init__(self, color: str) -> None:
+        self.color = color
+
+    @classmethod
+    def red(cls: Type['Color']) -> 'Color':
+        return cls('\033[31;1m')
+
+    @classmethod
+    def blue(cls: Type['Color']) -> 'Color':
+        return cls('\033[34m')
+
+    def __enter__(self) -> None:
+        print(self.color, end='', sep='')
+
+    def __exit__(self, *args: Any) -> Any:
+        print('\033[0m', end='', sep='')
 
 
 class ConvertJSON:
@@ -220,154 +392,20 @@ class ConvertJSON:
         pass
 
 
-@contextmanager
-def getIO(command: str) -> Generator[List[str], None, None]:
-    """
-    Get results from terminal commands as lists of lines of text.
-    """
-    with Popen(command, shell=True, stdout=PIPE, stderr=PIPE) as proc:
-        stdout, stderr = proc.communicate()
-
-    if stderr:
-        raise ValueError('Command exited with errors: {}'.format(stderr))
-
-    if stdout:
-        # For some reason, `shell=True` likes to yield an empty string.
-        stdout = re.split(newlines, stdout.decode())[:-1]
-
-    yield stdout
-
-
-def rmElements(it: Dict, els: List, rev: bool =False) -> Dict:
-    """
-    Filter one container by another. If `rev` is set to True, then the logic is
-    reversed.
-    """
-    retIt = {}  # type: Dict
-
-    if rev:
-        for el in it:
-            if el in els:
-                retIt = {**retIt, el: it[el]}
-    else:
-        for el in it:
-            if el not in els:
-                retIt = {**retIt, el: it[el]}
-
-    return retIt
-
-
-def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
-    """
-    Apply `rmElements` to a function, the first argument being its return value.
-
-    Level applies to depth at which to apply the filter. Could be generalized
-    for true depth-independent/flattened filtering, without losing structure.
-    """
-    def _decor(fn: Function[..., Dict[str, int]]) -> Function[[Dict], Dict[str, int]]:
-        @wraps(fn)
-        def _fn(arg: Dict) -> Dict[str, int]:
-            res = fn(arg)
-
-            def traverse(subDict: Dict, currentDepth: int =0) -> Optional[Dict]:
-                """
-                Traverse nested dictionaries to the necessary level before
-                filtering by `els`.
-                """
-                if currentDepth == level:
-                    if level == 0:
-                        # Cover base-case filtering.
-                        nonlocal res
-                        res = rmElements(subDict, els=els, rev=rev)
-                        return None
-                    else:
-                        return rmElements(subDict, els=els, rev=rev)
-                else:
-                    for key in subDict.keys():
-                        if isinstance(subDict[key], dict):
-                             subDict[key] = \
-                                 traverse(subDict[key], currentDepth + 1)
-                    else:
-                        return None
-
-            traverse(res)
-
-            return res
-        return _fn
-    return _decor
-
-
-# Filter volume info and select/reject those entries we don't need.
-
-@rmElementsDec(['capacity', 'used'], rev=True, level=1)
-@rmElementsDec(['BOOT', 'Recovery'], level=0)
-def windows(info: Dict) -> Dict[str, Dict[str, int]]:
-    """
-    Extract information about Windows' volumes.
-    """
-    volumes = info['Volumes']  # type: Dict[str, Dict[str, int]]
-
-    # As an annoying aside, it appears *Info keys associated with Windows use a
-    # string type for `capacity` data and integers for `used`, whereas in Linux
-    # *Info keys, integer type is used for both. :/
-    for volume in volumes:
-        volumes[volume]['capacity'] = int(volumes[volume]['capacity'])
-
-    return volumes
-
-
-@rmElementsDec(['capacity', 'used'], rev=True, level=1)
-@rmElementsDec(['<swap>'], level=0)
-def linux(info: Dict) -> Dict[str, Dict[str, int]]:
-    """
-    Extract information about mountpoints and disks.
-    """
-    mounts = info['Volumes']  # type: Dict[str, Dict[str, int]]
-
-    return mounts
-
-
-def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
-    """
-    Collect information about a UUID/agent and print it to the terminal.
-    """
-    # Now that we have the agent, let's go print the information we need.
-    allSnaps = []
-
-    for id in uuid:
-        snaps = []
-        for snap in os.listdir(agentMountpoint + id + '/.zfs/snapshot/'):
-            path = infoPath(id, snap)
-            if os.path.isfile(path):
-                with ConvertJSON(path) as info:
-                    if 'type' in info:
-                        # Linux (info[type] => 'linux')
-                        snaps.append(linux(info))
-                    elif info['os'].lower().startswith('windows'):
-                        # Windows (is there a better validation?)
-                        snaps.append(windows(info))
-                    else:
-                        # Mac OS, other ?
-                        raise UnsupportedOSError(
-                            'Received {}'.format(info['os'])
-                        )
-        allSnaps.append(snaps)
-
-    return allSnaps
-
-
 class PresentNiceColumns:
     """
     Present the information in straight columns; this is probably my least
     favorite part of this script :/ So ugly.
     """
     def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
-                       binary: bool =True, noscale: bool =False) -> None:
+                       binary: bool =True, noscale: bool =False,
+                       smart: bool =False) -> None:
         self.allSnaps = allSnaps
         self.binary = binary
-        self.fixes = [fix + ('i' if self.binary else 'B')
+        self.fixes = ['B'] + [fix + ('i' if self.binary else 'B')
                       for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
         self.noscale = noscale
+        self.smart = smart
 
     def render(self) -> None:
         """
@@ -420,7 +458,11 @@ class PresentNiceColumns:
                 for i, column in enumerate(snapshot):
                     if i % 4 == 0 and i != 0:
                         print(' ', end='')
-                    print(self._extend(column, colWidths[i]), end=' ')
+                    if i % 4 == 0:
+                        with Color.red():
+                            print(self._extend(column, colWidths[i]), end=' ')
+                    else:
+                        print(self._extend(column, colWidths[i]), end=' ')
                 else:
                     print()
 
@@ -495,11 +537,6 @@ def main() -> None:
     group.add_argument('-n', '--noscale', default=False, action='store_true',
         help='Do not scale byte counts (for later processing/plotting)'
     )
-
-    #parser.add_argument('-s', '--smart', default=False, action='store_true',
-    #    help='Provide \'smart\' indicators that requirements aren\'t satisfied'
-    #         ' or volumes have changed size [!^v]'
-    #)
 
     args = parser.parse_args()
 
