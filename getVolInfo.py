@@ -21,6 +21,7 @@ from typing import (List, Generator, Dict, Optional, Any, Iterable,
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
 from functools import wraps
+from collections import OrderedDict
 
 import re
 import argparse
@@ -270,14 +271,13 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
             def traverse(subDict: Dict, currentDepth: int =0) -> Optional[Dict]:
                 """
                 Traverse nested dictionaries to the necessary level before
-                filtering by `els`. Had an issue typing this, but apparently
+                filtering by `els`.
                 """
                 if currentDepth == level:
                     if level == 0:
                         # Cover base-case filtering.
                         nonlocal res
                         res = rmElements(subDict, els=els, rev=rev)
-                        # PEP 8 :/
                         return None
                     else:
                         return rmElements(subDict, els=els, rev=rev)
@@ -296,8 +296,7 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
     return _decor
 
 
-## Grab volumes/mountpoints we need as well as remove those properties therein
-## that we don't need.
+## Filter volume info and select/reject those entries we don't need.
 
 
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
@@ -306,7 +305,7 @@ def windows(info: Dict) -> Dict[str, Dict[str, int]]:
     """
     Extract information about Windows' volumes.
     """
-    volumes = info['Volumes']
+    volumes = info['Volumes']  # type: Dict[str, Dict[str, int]]
 
     # As an annoying aside, it appears *Info keys associated with Windows use a
     # string type for `capacity` data and integers for `used`, whereas in Linux
@@ -323,42 +322,14 @@ def linux(info: Dict) -> Dict[str, Dict[str, int]]:
     """
     Extract information about mountpoints and disks.
     """
-    mounts = info['Volumes']
+    mounts = info['Volumes']  # type: Dict[str, Dict[str, int]]
 
     return mounts
 
 
-def uniq(data: Iterable) -> Iterable:
-    """
-    Apply `set` builtin to the data and return as the same type.
-
-        [a] -> [a] (∃!)
-
-    I doubt this is the best general solution, but if you subtype Iterable,
-
-    https://github.com/python/cpython/blob/master/Lib/typing.py#L1197
-    https://github.com/python/cpython/blob/master/Lib/_collections_abc.py#L243
-
-    it should work on all follow-up types listed starting at
-
-    https://github.com/python/cpython/blob/master/Lib/_collections_abc.py#L277
-
-    Dictionaries are special though since the same hash can't map to two values.
-    They're already unique, but support them anyway.
-
-    Perhaps this type issue can be cleared up with a  type variable?
-    """
-    tp = type(data)
-
-    if tp is dict:
-        return data
-
-    return tp(set(data))  # type: ignore
-
-
 def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
     """
-    Collect information and print it to the terminal.
+    Collect information about a UUID/agent and print it to the terminal.
     """
     # Now that we have the agent, let's go print the information we need.
     allSnaps = []
@@ -387,52 +358,67 @@ def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
 
 class PresentNiceColumns:
     """
-    Present
+    Present the information in straight columns; this is probably my least
+    favorite part of this script :/ So ugly.
     """
     def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
                        binary: bool =True) -> None:
         self.allSnaps = allSnaps
         self.binary = binary
-        self.fixes = [fix + ('i' if self.binary else 'B') for fix in
-                      ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
-
-    def __repr__(self) -> None:
-        self.render()
+        self.fixes = [fix + ('i' if self.binary else 'B')
+                      for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
 
     def render(self) -> None:
         """
-        Additively build each line of output. This is generated every time
-        instead of storing the result in memory.
+        Print these agents' snapshots in nice visual columns.
         """
+
         for agent in self.allSnaps:
-            # Scale used/capacity values.
-            for snap in agent:
-                for volume in snap:
-                    snap[volume]['used'] = self.scale(snap[volume]['used'])
-                    snap[volume]['capacity'] = self.scale(snap[volume]['used'])
+            # Type safe conversion/storage of the former dictionary.
+            _agent = []  # type: List[Dict[str, Dict[str, str]]]
 
             # Get column widths for this agent prior to presentation.
             nCols = 4 * len(agent[0])
             colWidths = [0] * nCols
 
-            for i in range(nCols):
-                for snap in agent:
-                    print(snap)
-
-            # Now print this information to the terminal.
             for snap in agent:
+                # Type checks because OrderedDict <: Dict; cf.
+                _snap = OrderedDict()  # type: Dict[str, Dict[str, str]]
                 for volume in snap:
-                    used = snap[volume]['used']
-                    capacity = snap[volume]['capacity']
-                    print(volume + '-',
-                          used,
-                          capacity,
-                          '{0:.1f}%'.format(float(used) / float(capacity)),
-                          end='  ',
-                          sep=' ')
+                    _used = snap[volume]['used']
+                    used = self.scale(_used)
+                    _capacity = snap[volume]['capacity']
+                    capacity = self.scale(_capacity)
+
+                    # Create new ordered entry. Python 3.5's dictionaries don't
+                    # maintain their order, so we must explicitly create an
+                    # ordered dictionary for the convenience. (Uses an internal
+                    # doubly-linked list data structure).
+                    vol = volume + '-'
+                    _snap[vol] = OrderedDict()
+                    _snap[vol]['used'] = str(used)
+                    _snap[vol]['capacity'] = str(capacity)
+                    _snap[vol]['percent'] \
+                        = '{0:.1f}%'.format(100 * _used / _capacity)
+
+                _agent.append(_snap)
+
+            for _snap in _agent:
+                snapshot = self._flatten(_snap)
+                for i, column in enumerate(snapshot):
+                    width = len(column)
+                    if colWidths[i] < width:
+                        colWidths[i] = width
+
+            # Now print these columns with proper widths to the terminal.
+            for _snap in _agent:
+                snapshot = self._flatten(_snap)
+                for i, column in enumerate(snapshot):
+                    if i % 4 == 0 and i != 0:
+                        print(' ', end='')
+                    print(self._extend(column, colWidths[i]), end=' ')
                 else:
                     print()
-        return None
 
     def scale(self, bts: int) -> str:
         """
@@ -442,35 +428,45 @@ class PresentNiceColumns:
         if bts < 0:
             raise ValueError('Expected value >=0, received {}'.format(bts))
 
-        # FIXME: Widths are off.
         if self.binary:
             if bts == 0:
                 return '0.00 Ki'
 
             for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 2 ** (10 * magnitude) <= bts < 2 ** (10 * (magnitude + 1)):
-                    return '{0:.2f}{1}'.format(bts / 2 ** (10 * magnitude),
-                                                 prefix)
-            else:
-                raise ValueError(
-                    'Number of bytes to large for ZFS, received {}'.format(bts)
-                )
+                    bts /= 2 ** (10 * magnitude)
+                    return '{0:.2f}{1}'.format(bts, prefix)
         else:
             if bts == 0:
                 return '0.00 KB'
 
             for magnitude, prefix in zip(range(len(self.fixes)), self.fixes):
                 if 10 ** (3 * magnitude) <= bts < 10 ** (3 * (magnitude + 1)):
-                    return '{0:.2f}{1}'.format(bts / 10 ** (3 * magnitude),
-                                                 prefix)
-            else:
-                raise ValueError(
-                    'Number of bytes to large for ZFS, received {}'.format(bts)
-                )
+                    bts /= (10 ** (3 * magnitude))
+                    return '{0:.2f}{1}'.format(bts, prefix)
+
+        raise ValueError('Bytes received too large, received {}'.format(bts))
 
     @staticmethod
-    def getMaxWidth():
-        ...
+    def _flatten(snap: Dict[str, Dict[str, str]]) -> List[str]:
+        """
+        Flatten nested dictionaries.
+        """
+        ret = []
+
+        for volume in snap:
+            ret.append(volume)
+            for usage in snap[volume]:
+                ret.append(snap[volume][usage])
+
+        return ret
+
+    @staticmethod
+    def _extend(value: str, properWidth: int) -> str:
+        """
+        Extend a string to the proper width.
+        """
+        return (' ' * abs(len(value) - properWidth)) + value
 
 
 def main() -> None:
@@ -512,6 +508,8 @@ def main() -> None:
                         print('\n** ERROR: Please make a valid selection\n')
                         break
                 allSnaps = getInfo(list(args.agent))
+
+    ## allSnaps :: List[List[Dict[str, Dict[str, int]]]]
 
     PresentNiceColumns(allSnaps, binary=args.metric).render()
 
