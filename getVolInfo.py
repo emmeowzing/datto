@@ -7,13 +7,9 @@ r"""
 
     Possible to use/pipe output from this script as well; e.g.,
 
-        $ ./getVolInfo.py --agent <some_agent> | grep -P "[^\s]+(?=-)"
+        $ ./getVolInfo.py --agent -c <some_agent> | grep -P "[^\s]+(?=-)"
 
-    will highlight volumes.
-
-    Type checked with Mypy v0.641. Variable type annotations are not supported
-    in Python versions <3.6, so there's 1 case in this script where I've
-    favored generality and ignored type.
+    will highlight volumes again.
 
         $ mypy --strict getVol.py
 
@@ -46,11 +42,14 @@ def infoPath(uuid: str, snap: str) -> str:
            + '.agentInfo'
 
 
-def time(epoch: int) -> str:
+def time(epoch: int, utc: bool =True) -> str:
     """
     Convert Linux epoch time to a UTC string.
     """
-    return datetime.utcfromtimestamp(epoch).strftime('%d-%m-%Y %H:%M')
+    if utc:
+        return datetime.utcfromtimestamp(epoch).strftime('%m-%d-%Y %H:%M')
+    else:
+        return datetime.fromtimestamp(epoch).strftime('%m-%d-%Y %H:%M')
 
 
 @contextmanager
@@ -412,8 +411,10 @@ class PresentNiceColumns:
     """
     def __init__(self, allSnaps: List[List[Dict[str, Dict[str, int]]]],
                        uuids: List[str],
-                       binary: bool =True, noscale: bool =False,
-                       color: bool =True) -> None:
+                       binary: bool =True,
+                       noscale: bool =False,
+                       color: bool =True,
+                       localtime: bool  =False) -> None:
         self.allSnaps = allSnaps
         self.uuids = uuids
         self.binary = binary
@@ -421,12 +422,17 @@ class PresentNiceColumns:
                       for fix in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']]
         self.noscale = noscale
         self.color = color
+        self.localtime = localtime
 
     def render(self) -> None:
         """
         Print these agents' snapshots in nice visual columns.
         """
         for uuid, agent in zip(self.uuids, self.allSnaps):
+            if len(agent) == 0:
+                print('** Error: no snapshots for {}'.format(uuid))
+                continue
+
             # Type safe conversion/storage of the former dictionary.
             _agent = []  # type: List[Dict[str, Dict[str, str]]]
 
@@ -471,9 +477,10 @@ class PresentNiceColumns:
                     # Print the converted epoch time.
                     if self.color:
                         with Color.bold():
-                            print(time(int(epoch)) + ' ~', sep='', end=' ')
+                            print(time(int(epoch), self.localtime) + ' ~',
+                                  sep='', end=' ')
                     else:
-                        print(time(int(epoch)) + ' ~', sep='', end=' ')
+                        print(time(int(epoch), self.localtime) + ' ~', sep='', end=' ')
                     snapshot = self._flatten(_snap)
 
                     for i, column in enumerate(snapshot):
@@ -551,6 +558,10 @@ def main() -> None:
         help='Do not color output.'
     )
 
+    parser.add_argument('-l', '--localtime', default=False, action='store_true',
+        help='Present snapshot epoch times in local time rather than UTC.'
+    )
+
     # Cannot call both --metric and --noscale.
     group = parser.add_mutually_exclusive_group()
 
@@ -593,7 +604,8 @@ def main() -> None:
 
     PresentNiceColumns(allSnaps, uuids, binary=args.metric,
                        noscale=args.noscale,
-                       color=args.color).render()
+                       color=args.color,
+                       localtime=args.localtime).render()
 
 
 if __name__ == '__main__':
