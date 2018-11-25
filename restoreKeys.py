@@ -16,6 +16,64 @@ from contextlib import contextmanager
 configBackupSnaps = '/home/configBackup/.zfs/snapshot/'
 
 
+class Levenshtein:
+    """
+    Compute the Levenshtein distance between two strings - we will be presenting
+    the keys in order of similarity.
+    """
+    def __init__(self, s1: str, s2: str) -> None:
+        self.s1 = s1
+        self.s2 = s2
+        self._l1 = len(s1)
+        self._l2 = len(s2)
+        self._mat = self._constructMat(self._l1, self._l2)
+
+    @staticmethod
+    def _constructMat(dim1: int, dim2: int) -> List[List[int]]:
+        """
+        Get a list of lists of zeros for updating; requires O((n + 1) * (m + 1))
+        space.
+        """
+        mat = [[0] * dim2] * dim1
+
+        for i in range(dim1 + 1):
+            mat[i][0] = i
+
+        for j in range(dim2 + 1):
+            mat[0][j] = j
+
+        return mat
+
+    def dist(self) -> int:
+        """
+        Get the distance between the two strings.
+        """
+
+        if min(self._l1, self._l2) == 0:
+            return max(self._l1, self._l2)
+
+        # Examine each character, comparing to the other string on self._mat.
+        for i, ch1 in enumerate(self.s1, start=1):
+            for j, ch2 in enumerate(self.s2, start=1):
+                cost = 1 if ch1 != ch2 else 0
+
+                self._mat[i][j] = min(
+                    self._mat[i - 1][j] + 1,
+                    self._mat[i][j - 1] + 1,
+                    self._mat[i - 1][j - 1] + cost,
+                )
+
+        distance = self._mat[self._l1][self._l2]
+
+        return distance
+
+    def __enter__(self) -> int:
+        return self.dist()
+
+    def __exit__(self, *args) -> None:
+        pass
+
+
 @contextmanager
 def getIO(command: str) -> Generator[List[str], None, None]:
     """
@@ -28,9 +86,11 @@ def getIO(command: str) -> Generator[List[str], None, None]:
         raise ValueError('Command exited with errors: {}'.format(stderr))
 
     if stdout:
+        stdout = re.split(newlines, stdout.decode())
+
         # For some reason, `shell=True` likes to yield an empty string.
-        print(stdout)
-        stdout = re.split(newlines, stdout.decode())[:-1]
+        if stdout[-1] == '':
+            stdout = stdout[:-1]
 
     yield stdout
 
@@ -46,13 +106,22 @@ class StepArrow:
         self.steps = steps
         self.arrows = (_arrow * self.steps).format(*self.labels)
 
+    def __enter__(self) -> 'StepArrow':
+        return self
+
+    def __exit__(self, *args: Any) -> Any:
+        pass
+
     def __str__(self) -> str:
         # FIXME
         ...
 
     @property
     def state(self) -> int:
-        self._state =
+        self._state = 0
+
+    @state.fset
+    def _
 
 
 class Color:
