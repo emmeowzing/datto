@@ -9,14 +9,21 @@ r"""
     listed at the aforementioned location.
 """
 
-from typing import Generator, List
+from typing import List, Any, Type
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from contextlib import contextmanager
+from subprocess import Popen, PIPE
+from collections.abc import Iterator
+from contextlib import AbstractContextManager
+from abc import ABCMeta
+
+import re
 
 configBackupSnaps = '/home/configBackup/.zfs/snapshot/'
 
+newlines = re.compile(r'\n+')
 
-class Levenshtein:
+
+class Levenshtein(AbstractContextManager):
     """
     Compute the Levenshtein distance between two strings - we will be presenting
     the keys in order of similarity.
@@ -74,28 +81,33 @@ class Levenshtein:
         pass
 
 
-@contextmanager
-def getIO(command: str) -> Generator[List[str], None, None]:
+class getIO(AbstractContextManager):
     """
     Get results from terminal commands as lists of lines of text.
     """
-    with Popen(command, shell=True, stdout=PIPE, stderr=PIPE) as proc:
-        stdout, stderr = proc.communicate()
+    def __init__(self, command: str) -> None:
+        self.command = command
 
-    if stderr:
-        raise ValueError('Command exited with errors: {}'.format(stderr))
+    def __enter__(self) -> List[str]:
+        with Popen(self.command, shell=True, stdout=PIPE, stderr=PIPE) as proc:
+            _stdout, self.stderr = proc.communicate()
 
-    if stdout:
-        stdout = re.split(newlines, stdout.decode())
+        if self.stderr:
+            raise ValueError(
+                'Command exited with errors: {}'.format(self.stderr)
+            )
 
-        # For some reason, `shell=True` likes to yield an empty string.
-        if stdout[-1] == '':
-            stdout = stdout[:-1]
+        if _stdout:
+            self.stdout = re.split(newlines, _stdout.decode())
 
-    yield stdout
+            # For some reason, `shell=True` likes to yield an empty string.
+            if self.stdout[-1] == '':
+                self.stdout = self.stdout[:-1]
+
+        return self.stdout
 
 
-class StepArrow:
+class ProgressArrow(Iterator, AbstractContextManager):
     """
     Print a nice 'progress' arrow at the top of the screen.
     """
@@ -103,28 +115,53 @@ class StepArrow:
 
     def __init__(self, labels: List[str]) -> None:
         self.labels = labels
-        self.steps = steps
-        self.arrows = (_arrow * self.steps).format(*self.labels)
+        self.steps = len(labels)
+        self.arrows = (self._arrow * self.steps).format(*self.labels)
 
-    def __enter__(self) -> 'StepArrow':
+    def __enter__(self) -> 'ProgressArrow':
         return self
 
     def __exit__(self, *args: Any) -> Any:
         pass
 
     def __str__(self) -> str:
-        # FIXME
-        ...
+        with self as instance:
+            return instance.state
+
+    def __iter__(self) -> 'ProgressArrow':
+        return self
+
+    def __next__(self) -> str:
+        with self as instance:
+            instance.state += 1
+            if instance.state 
 
     @property
     def state(self) -> int:
+        """
+        Define the arrow's current state.
+        """
         self._state = 0
 
-    @state.fset
-    def _
+        return self._state
+
+    @state.setter
+    def state(self, state: int) -> None:
+        """
+        Set the current state.
+        """
+        if self.steps <= state or state < self.steps:
+            raise IndexError()
+
+    @state.getter
+    def state(self) -> str:
+        """
+        Acquire/print the current state.
+        """
+        return self.arrows
 
 
-class Color:
+class Color(AbstractContextManager):
     """
     `xterm` colors for coloring fonts written to stdout.
     """
@@ -174,31 +211,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Compare requested agents against valid agents, as I've done in my
-    # basicVolumeInfo script.
-    with getIO('zfs list -Ho name | grep -oP "(?<=(agents\/))[^\s]+"') as agents:
-        if not agents:
-            raise InvalidAgentNumberError('No agents found: {}'.format(agents))
-        else:
-            if not args.agent:
-                # List agents by UUID, ask the user for input.
-                while True:
-                    print(*agents, sep='\n', end='\n\n')
-                    uuid = input('Agent: ')
-                    if uuid in agents:
-                        break
-                    else:
-                        print('\n** ERROR: Please make a valid selection, '
-                              'received {}\n'.format(uuid))
-                allSnaps = getInfo([uuid])
-                uuids = [uuid]
-            else:
-                for id in args.agent:
-                    if id not in agents:
-                        print('\n** ERROR: Please make a valid selection\n')
-                        break
-                allSnaps = getInfo(list(args.agent))
-                uuids = list(args.agent)
+    #
 
 
 if __name__ == '__main__':
