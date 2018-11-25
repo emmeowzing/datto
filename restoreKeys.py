@@ -134,7 +134,7 @@ class ProgressArrow(Iterator, AbstractContextManager):
     def __next__(self) -> str:
         with self as instance:
             instance.state += 1
-            if instance.state 
+            if instance.state
 
     @property
     def state(self) -> int:

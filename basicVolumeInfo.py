@@ -21,8 +21,8 @@ r"""
 """
 
 
-from typing import (List, Generator, Dict, Optional, Any, Iterable,
-                    Callable as Function, Type)
+from typing import (List, Generator, Dict, Optional, Any, Callable as Function,
+                    Type)
 from subprocess import Popen, PIPE
 from contextlib import contextmanager
 from functools import wraps
