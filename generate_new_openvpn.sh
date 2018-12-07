@@ -33,7 +33,7 @@ chmod 644 "$OUTDIR/"*
 # Now generate a really quick and dirty client.conf file.
 # $ cat /etc/openvpn/client.conf | awk '{ if ($0 !~ /^\#/ && $0 !~ /^;/ && length($0) != 0) { print $0 } }'
 
-printf "client\\ndev tun\\nproto udp\\nremote ec2-18-224-16-221.us-east-2.compute.amazonaws.com 1194\\nresolv-retry infinite\\nnobind\\npersist-key\\npersist-tun\\nhttp-proxy-retry\\nca /etc/openvpn/ca.crt\\ncert /etc/openvpn/%s.crt\\nkey /etc/openvpn/client/%s.key\\nremote-cert-tls server\\ntls-auth /etc/openvpn/ta.key 1\\ncipher AES-256-CBC\\nverb 3\\n" "$name" "$name" > "$OUTDIR/client.conf"
+printf "client\\ndev tun\\nproto udp\\nremote ec2-18-224-16-221.us-east-2.compute.amazonaws.com 1194\\nresolv-retry infinite\\nnobind\\npersist-key\\npersist-tun\\nhttp-proxy-retry\\nca /etc/openvpn/ca.crt\\ncert /etc/openvpn/%s.crt\\nkey /etc/openvpn/%s.key\\nremote-cert-tls server\\ntls-auth /etc/openvpn/ta.key 1\\ncipher AES-256-CBC\\nverb 3\\n" "$name" "$name" > "$OUTDIR/client.conf"
 
 printf "Command to copy all of these files:\\n\\n"
 printf "\\tscp -i ~/.ssh/OpenVPN_Key_Pair.pem ubuntu@ec2-18-224-16-221.us-east-2.compute.amazonaws.com:tocopy/{ca.crt,client.conf,%s.crt,%s.csr,%s.key,ta.key} /etc/openvpn/\\n\\n" "$name" "$name" "$name"
