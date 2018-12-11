@@ -24,7 +24,6 @@ subDirectory = '/datto/array1/.recv/'
 newlines    = re.compile(r'\n+')
 affirmative = re.compile(r'^[Yy]')
 devID       = re.compile(r'(?<=-)[0-9]{4,6}(?=-)')
-secretKey   = re.compile(r'')
 
 
 class Color:

@@ -17,7 +17,7 @@ r"""
 
     Brandon Doyle <bdoyle@datto.com>.
 
-    Last updated: November 19, 2018.
+    Last updated: December 10, 2018.
 """
 
 
@@ -177,7 +177,6 @@ def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
             path = infoPath(id, snap)
             if os.path.isfile(path):
                 with ConvertJSON(path) as info:
-                    print(info)
                     if 'type' in info:
                         # Linux (info[type] => 'linux')
                         snaps.append(linux(info))
@@ -234,11 +233,23 @@ class Color:
     def yellow(cls: Type['Color']) -> 'Color':
         return cls('\033[33m')
 
+    @classmethod
+    def green(cls: Type['Color']) -> 'Color':
+        return cls('\033[32m')
+
+    @classmethod
+    def normal(cls: Type['Color']) -> 'Color':
+        return cls('\033[0m')
+
     ## Effects
 
     @classmethod
     def bold(cls: Type['Color']) -> 'Color':
         return cls('\033[1m')
+
+    @classmethod
+    def italicize(cls: Type['Color']) -> 'Color':
+        return cls('\033[3m')
 
     def __enter__(self) -> None:
         print(self.color + self.string, end='', sep='')
@@ -249,7 +260,7 @@ class Color:
 
 class ConvertJSON:
     """
-    Parse/convert PHP serialized JSON to Python dictionaries.
+    Parse/convert serialized JSON to Python dictionaries.
 
     Pasting this code here for an all-in-one, so we don't have to install a
     library for this script to work.
@@ -440,7 +451,8 @@ class PresentNiceColumns:
         """
         for uuid, agent in zip(self.uuids, self.allSnaps):
             if len(agent) == 0:
-                print('** Error: no snapshots for {}'.format(uuid))
+                with Color.red(), Color.bold():
+                    print('** ERROR: no snapshots for {}'.format(uuid))
                 continue
 
             # Type safe conversion/storage of the former dictionary.
@@ -511,7 +523,6 @@ class PresentNiceColumns:
         Format volume used/capacity values to the correct binary or metric
         magnitude (and hence prefix).
         """
-        print(bts, type(bts))
         if bts < 0:
             raise ValueError('Expected value >=0, received {}'.format(bts))
 
@@ -602,14 +613,16 @@ def main() -> None:
                     if uuid in agents:
                         break
                     else:
-                        print('\n** ERROR: Please make a valid selection, '
-                              'received {}\n'.format(uuid))
+                        with Color.red(), Color.bold():
+                            print('\n** ERROR: Please make a valid selection, '
+                                  'received \'{}\'\n'.format(uuid))
                 allSnaps = getInfo([uuid])
                 uuids = [uuid]
             else:
                 for id in args.agent:
                     if id not in agents:
-                        print('\n** ERROR: Please make a valid selection\n')
+                        with Color.red(), Color.bold():
+                            print('\n** ERROR: Please make a valid selection\n')
                         break
                 allSnaps = getInfo(list(args.agent))
                 uuids = list(args.agent)
