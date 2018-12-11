@@ -537,7 +537,7 @@ class PresentNiceColumns:
     @staticmethod
     def _flatten(snap: Dict[str, Dict[str, str]]) -> List[str]:
         """
-        Flatten nested dictionaries.
+        Flatten one level of nested dictionaries.
         """
         ret = []
 
