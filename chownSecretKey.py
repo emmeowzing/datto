@@ -131,10 +131,27 @@ def chownSecretKey(rootfile):
     """
     Change ownership to the SecretKey user.
     """
+
+    # Get the devID from the file name that we're changing ownership of.
+    rootDevID = re.findall(devID, rootfile)[0]
+
+    # Now find the secretKey user from /etc/passwd with the devID.
+    try:
+        rootSecretKey = getIO(
+            'awk -F "[:/]" \'{ if ($0 ~ /' + rootDevID + '/) { print $1; } }\' '
+            '/etc/passwd'
+        )[0]
+    except IndexError:
+        with Color.red():
+            print('** ERROR: user with devID {} does not exist in /etc/passwd,'
+                  ' exiting'.format(rootDevID))
+            return
+
     while True:
         with Color.blue():
-            print('This will change the ownership of \'{}\' to \'{}\'. Confirm? [Yy]: '\
-                .format(subDirectory + rootfile, rootfile), end='')
+            print('This will change the ownership of \'{}\' to \'{}\'.'
+                  ' Confirm? [Yy]: '.format(subDirectory + rootfile, 
+                                            rootSecretKey), end='')
 
         chownConfirm = input()
 
@@ -144,15 +161,6 @@ def chownSecretKey(rootfile):
             with Color.red(), Color.bold():
                 print('** Exiting.')
             return
-
-    # Get the devID from the file name that we're changing ownership of.
-    rootDevID = re.findall(devID, rootfile)[0]
-
-    # Now find the secretKey user from /etc/passwd with the devID.
-    rootSecretKey = getIO(
-        'awk -F "[:/]" \'{ if ($0 ~ /' + rootDevID + '/) { print $1; } }\' '
-        '/etc/passwd'
-    )[0]
 
     # Chown the file to owner `rootSecretKey`.
     getIO('chown {} {}'.format(rootSecretKey + ':www-data', subDirectory + rootfile))
