@@ -27,7 +27,6 @@ getAgentName()
         break
     done
 
-    printf "\\n"
     printf "%s" "$agentName"
 
     return 0
@@ -45,7 +44,7 @@ searchConfigBackup()
     fi
 
     local uuid="$1"
-    local findings snapshot snapshots length
+    local findings snapshot snapshots length i file
 
     snapshots=(/home/configBackup/.zfs/snapshot/*)
     length=$(( ${#snapshots[@]} - 1 ))
@@ -58,17 +57,16 @@ searchConfigBackup()
 
         printf "%s\\n" "$snapshot"
         printf "Current Snapshot: %s\\n" "$(date -d "@${snapshot##*/}")"
-        printf "$(find "$snapshot/files/datto/config/keys/" -name "*$uuid*")"
-        arr=( $(find $snapshot/files/datto/config/keys/ -name "*$uuid*") )
-        printf "%s\\n" "${arr[@]}"
-        exit 1
+        findings=( $(find "$snapshot/files/datto/config/keys/" -name "*$uuid*") )
 
         # If there are keys here, then ask user if they wish to restore them.
         if [ "${#findings[@]}" -gt "1" ]
         then
-            printf "\\n\\t\\033[32mI found something! YAY!\\033[0m\\n"
-            printf "\\t\\033[32mWould you like to restore these item(s)?\\033[0m\\n\\n"
-            printf "\"%s\"\\n\\n" "${findings[@]}"
+            printf "\\n\\t\\033[32;1mI found something! YAY!\\033[0m\\n"
+            printf "\\t\\033[32;1mWould you like to restore these item(s)?\\033[0m\\n\\n"
+
+            printf "\\t\\033[32m%s\\033[0m\\n" "${findings[@]##*/}"
+            printf "\\n"
 
             while true
             do
@@ -83,10 +81,12 @@ searchConfigBackup()
                     do
                         cp "$file" "/datto/config/keys"
                     done
+
+                    printf "Keys restored to /datto/config/keys.\\n\\n"
         
                     return 0
                 else
-                    printf "\\n\\tINFO: Very well; skipping current set and searching for a former set.\\n\\n"
+                    printf "\\n\\t\\033[31;1mINFO: Very well; skipping current set and searching for a former set.\\033[0m\\n\\n"
                     break
                 fi
             done
