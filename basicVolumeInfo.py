@@ -465,6 +465,7 @@ class PresentNiceColumns:
             for snap in agent:
                 # Type checks because OrderedDict <: Dict.
                 _snap = OrderedDict()  # type: Dict[str, Dict[str, str]]
+                
                 for volume in snap:
                     _used = snap[volume]['used']
                     _capacity = snap[volume]['capacity']
@@ -486,10 +487,13 @@ class PresentNiceColumns:
                 _agent.append(_snap)
 
             for _snap in _agent:
+                # Auto-expand if disks were added somewhere along the line.
+                if len(_snap) > nCols // 4:
+                    colWidths += [0] * 4 * (len(_snap) - nCols // 4)
+
                 snapshot = self._flatten(_snap)
                 for i, column in enumerate(snapshot):
                     width = len(column)
-                    print(snapshot)
                     if colWidths[i] < width:
                         colWidths[i] = width
 
