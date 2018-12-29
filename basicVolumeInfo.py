@@ -177,7 +177,7 @@ def getInfo(uuid: List[str]) -> List[List[Dict[str, Dict[str, int]]]]:
             path = infoPath(id, snap)
             if os.path.isfile(path):
                 with ConvertJSON(path) as info:
-                    if 'type' in info:
+                    if 'type' in info and info['type'].lower() == 'linux':
                         # Linux (info[type] => 'linux')
                         snaps.append(linux(info))
                     elif info['os'].lower().startswith('windows'):
