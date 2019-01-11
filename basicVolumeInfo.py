@@ -7,17 +7,17 @@ r"""
 
     Possible to use/pipe output from this script as well; e.g.,
 
-        $ ./getVolInfo.py --agent -c <some_agent> | grep -P "[^\s]+(?=-)"
+        $ ./basicVolumeInfo.py --agent -c <some_agent> | grep -P "[^\s]+(?=-)"
 
     will highlight volumes again.
 
-    Also type-checked with Mypy v0.641.
+    Also type-checked with Mypy v0.65.
 
-        $ mypy --strict getVol.py
+        $ mypy basicVolumeInfo.py
 
     Brandon Doyle <bdoyle@datto.com>.
 
-    Last updated: December 10, 2018.
+    Last updated: December 29, 2018.
 """
 
 
@@ -137,7 +137,7 @@ def rmElementsDec(els: List, rev: bool =False, level: int =0) -> Function:
 # Filter volume info and select/reject those entries we don't need.
 
 @rmElementsDec(['capacity', 'used'], rev=True, level=1)
-@rmElementsDec(['BOOT', 'Recovery'], level=0)
+@rmElementsDec(['BOOT', 'Recovery', 'System Reserved'], level=0)
 def windows(info: Dict) -> Dict[str, Dict[str, int]]:
     """
     Extract information about Windows' volumes.
@@ -465,6 +465,7 @@ class PresentNiceColumns:
             for snap in agent:
                 # Type checks because OrderedDict <: Dict.
                 _snap = OrderedDict()  # type: Dict[str, Dict[str, str]]
+                
                 for volume in snap:
                     _used = snap[volume]['used']
                     _capacity = snap[volume]['capacity']
@@ -486,6 +487,10 @@ class PresentNiceColumns:
                 _agent.append(_snap)
 
             for _snap in _agent:
+                # Auto-expand if disks were added somewhere along the line.
+                if len(_snap) > nCols // 4:
+                    colWidths += [0] * 4 * (len(_snap) - nCols // 4)
+
                 snapshot = self._flatten(_snap)
                 for i, column in enumerate(snapshot):
                     width = len(column)
@@ -523,6 +528,7 @@ class PresentNiceColumns:
         Format volume used/capacity values to the correct binary or metric
         magnitude (and hence prefix).
         """
+        
         if bts < 0:
             raise ValueError('Expected value >=0, received {}'.format(bts))
 
