@@ -32,6 +32,24 @@ from datetime import datetime
 import re
 import argparse
 import os
+import sys
+import subprocess
+
+
+def scriptLog():
+    p = subprocess.Popen(["lsb_release -r"], stdout=subprocess.PIPE, shell=True)
+    output = p.stdout.read()
+    if "16.04" in output:
+        sys.argv.pop(0)
+        deviceID = open('/datto/config/deviceID').read().strip()
+        dasUser = os.environ.get('DAS_USER')
+        scriptname = "basicVolumeInfo.py"
+        arguments = ' '.join(sys.argv)
+        responseVariable = subprocess.check_output(["curl", "-sS", "-X", "POST", "-F", "deviceID="+deviceID, "-F", "dasUser="+dasUser, "-F", "script="+scriptname, "-F", "arguments="+arguments, "https://supportfiles.datto.com/api/script/log"], stderr=subprocess.STDOUT)
+    else:
+        print("OS version is not 16.04. Skipping logging.")
+
+scriptLog()
 
 
 newlines = re.compile(r'\n+')
