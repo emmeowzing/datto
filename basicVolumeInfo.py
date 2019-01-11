@@ -36,22 +36,6 @@ import sys
 import subprocess
 
 
-def scriptLog():
-    p = subprocess.Popen(["lsb_release -r"], stdout=subprocess.PIPE, shell=True)
-    output = p.stdout.read()
-    if "16.04" in output:
-        sys.argv.pop(0)
-        deviceID = open('/datto/config/deviceID').read().strip()
-        dasUser = os.environ.get('DAS_USER')
-        scriptname = "basicVolumeInfo.py"
-        arguments = ' '.join(sys.argv)
-        responseVariable = subprocess.check_output(["curl", "-sS", "-X", "POST", "-F", "deviceID="+deviceID, "-F", "dasUser="+dasUser, "-F", "script="+scriptname, "-F", "arguments="+arguments, "https://supportfiles.datto.com/api/script/log"], stderr=subprocess.STDOUT)
-    else:
-        print("OS version is not 16.04. Skipping logging.")
-
-scriptLog()
-
-
 newlines = re.compile(r'\n+')
 
 agentMountpoint = '/home/agents/'
@@ -591,10 +575,48 @@ class PresentNiceColumns:
         return (' ' * abs(len(value) - properWidth)) + value
 
 
+def scriptLog() -> None:
+    """
+    Log this script's usage/arguments.
+    """
+    with getIO('lsb_release -r') as lsbOutput:
+        lsbOut = lsbOutput[0]
+
+    if '16.04' in lsbOut:
+        with open('/datto/config/deviceID') as devID:
+            deviceID = devID.read().strip()
+
+        # The following is None if you're directly SSH'ed into the 
+        # appliance, so we need to compensate for that somehow I'd think
+        # to avoid a `TypeError` here.
+        dasUser = os.environ.get('DAS_USER')
+        if not dasUser:
+            dasUser = 'localSSH'
+
+        if __file__ != 'basicVolumeInfo.py':
+            scriptName = __file__ + '_basicVolumeInfo.py'
+        else:
+            scriptName = 'basicVolumeInfo.py'
+
+        arguments = ' '.join(sys.argv[1:])
+
+        # Submit this data.
+        getIO('curl -sS -X POST -F deviceID={0} -F dasUser={1} -F script={2}' 
+              '-F arguments={3} https://supportfiles.datto.com/api/script/log'\
+              .format(deviceID, dasUser, scriptName, arguments))
+    else:
+        print('WARNING: OS version is not 16.04. '
+              'Skipping logging; received \'{0}\''.format(*lsbOutput))
+
+
 def main() -> None:
     """
     Get user input. Set up process.
     """
+
+    # Call this logging function for internal tracking.
+    scriptLog()
+
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
