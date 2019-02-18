@@ -1,6 +1,6 @@
 #! /bin/bash
-# Get a slimmed-down version of my .vimrc for use on a Datto. Limited since we
-# don't have git, and it's probably not a good idea to install it.
+# Get a "thicker" version of the thin .vimrc with indents; requires/installs
+# git to acquire Vundle and install indentation guides.
 
 apt update
 apt install git -y
