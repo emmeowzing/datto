@@ -1,30 +1,17 @@
-" More complete vimrc (where `git` is installed)
-" Brandon Doyle
-" November 12, 2018
+" Thicc .vimrc
+" February 17, 2019
 
+filetype off
+
+" Set runtime path.
 set rtp+=~/.vim/bundle/Vundle.vim
-call vundle#begin()
-Plugin 'VundleVim/Vundle.vim'
 
-" Plugins
-Plugin 'sjl/badwolf'            " colorscheme
-Plugin 'Valloric/YouCompleteMe'
-Plugin 'jiangmiao/auto-pairs'   " for autocompleting braces and brackets
-Plugin 'derekwyatt/vim-scala'
-Plugin 'junegunn/fzf.vim'
-Plugin 'itchyny/lightline.vim'
-Plugin 'terryma/vim-multiple-cursors'
-Plugin 'danro/rename.vim'
-Plugin 'airblade/vim-gitgutter'
-Plugin 'tpope/vim-fugitive'
-Plugin 'tinco/haskell.vim'
-Plugin 'aperezdc/vim-template'
-Plugin 'urso/haskell_syntax.vim'
-Plugin 'PProvost/vim-ps1.git'   " Powershell syntax 
-Plugin 'Yggdroot/indentLine'
-Plugin 'fsharp/vim-fsharp'
-Plugin 'zxqfl/tabnine-vim'      " TabNine ML autocomplete
-call vundle#end()
+call vundle#begin()
+
+Plugin 'nathanaelkane/vim-indent-guides' " Nicer indent guides.
+
+Plugin 'VundleVim/Vundle.vim'
+call vundle#end()            " required
 
 filetype plugin indent on
 syntax enable
@@ -37,24 +24,22 @@ set expandtab       " convert tabs to spaces
 set smarttab
 set number          " line numbering
 set showcmd         " show last command in bottom-right
-
 set cursorline      " underline the line your cursor is on, so it's
-                    " easier to go back after flipping between windows
+                    " easier to go back after flipping between windows\
 
 set showmatch       " highlight matching [{()}]
-
 set incsearch
 set hlsearch        " search as you're typing
-
 set colorcolumn=80  " vertical line for Python
-
 set t_Co=256        " Allow 256 colors; without only supports 8
-
 set backspace=indent,eol,start
 set laststatus=2
 set linebreak       " break at the word level instead of the character
 
-au FileType haskell setl sw=2 sts=2 et " Use 2 spaces for Haskell source files
-au FileType tex setl sw=2 sts=2 et " Use 2 spaces for LaTeX source files
-
 colorscheme badwolf
+
+" Package configurations.
+let g:indent_guides_enable_on_vim_startup = 1  " Enable indent guides by default.
+set ts=4 sw=4 et
+let g:indent_guides_start_level = 2
+let g:indent_guides_guide_size = 1
