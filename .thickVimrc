@@ -9,6 +9,7 @@ set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
 
 Plugin 'nathanaelkane/vim-indent-guides' " Nicer indent guides.
+Plugin 'terryma/vim-multiple-cursors'    " Multiple cursors.
 
 Plugin 'VundleVim/Vundle.vim'
 call vundle#end()            " required
