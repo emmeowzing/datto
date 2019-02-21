@@ -38,27 +38,52 @@ checkInstalled()
 # Get valid user input for various things.
 getIO()
 {
-    if [ $# != 1 ]
+    if [ $# -ge 1 ]
     then
         printf "** ERROR: \`getIO\` expected 1 argument, received %s\\n" \
             "$#" 1>&2
         exit 1
     fi
 
-    local input 
+    local input f
     
     while true
     do
-        read -r -p "Please enter $1: " input
+        read -r -p "$1: " input
+
+        # Ensure the I/- isn't a null string.
         if ! [ "$input" ]
         then
             printf "** ERROR: must enter non-empty string\\n" 1>&2
-        else
-            break
         fi
+
+        shift
+
+        # Ensure this I/- satisfies all conditions.
+        for f in $# "last_";
+        do
+            if [ "$f" == "last_" ]
+            then
+                break 2
+            elif ! [ "$($f "$input")" ]
+            then
+                break
+            fi
+        done
     done
     
     printf "%s" "$input"
+}
+
+
+##
+# Condition on CPUs to pass to `getIO`.
+getCPUs()
+{
+    local cpu
+    declare -i cpu
+
+    
 }
 
 
@@ -67,17 +92,20 @@ getIO()
 setup()
 {
     local name mem hostCPUs cpu disks ans installer
+    declare -i mem hostCPUs cpu 
+    declare -a disks
 
     # Save 2 processors for the host, at the very least.
     hostCPUs="$(nproc --ignore 2)"
 
-    name="$(getIO "the name")"
-    mem="$(getIO "the memory (in MiB)")"
+    name="$(getIO "Provide the name")"
+    mem="$(getIO "Provide the memory (in MiB)")"
 
-    # TODO: check against CPUs already taken up by *-active VMs.
+    # TODO: check against CPUs already taken up by active VMs.
+    # Wrapping `getIO` here because of the additional complexity.
     while true
     do
-        cpu="$(getIO "the number of CPUs")"
+        cpu="$(getIO "Provide the number of CPUs")"
         if [ "$cpu" -gt "$hostCPUs" ]
         then
             printf "**WARNING: number of available host CPUs is %s\\n" \
@@ -115,18 +143,35 @@ setup()
                     while true
                     do
                         read -r -p "Enter a valid file path: " path
+                        pathM="${path##*.}"
 
                         if ! [ -e "$path" ]
                         then
                             printf "**ERROR: enter a valid path, received %s\\n" \
                                 "$path"
+                        elif [ "$pathM" != "iso" ] || [ "$pathM" != "img" ]
+                        then
+                            read -r -p "Extension is $pathM, continue [y|n]"
+                        else
+                            break
                         fi
                     done
 
-                    disks[0]="${disks[0]} cdrom="
+                    size="$(getIO "size of installer disk")"
+
+                    # Update disks array, putting this cdrom first ofc.
+                    disks[0]="${disks[0]} cdrom=$path,size=$size"
                 fi
                 previous=true
             fi
+
+            # Handle adding arbitrary disks.
+            while true
+            do
+                size="$(getIO "the size (GiB)")"
+            done
+
+            #disks[
         done
     fi
 
@@ -149,7 +194,7 @@ main()
     printf "\033[1mString:\033[0m \033[32;1m%s\033[0m\\n" "$runnable"
 
     read -r -p "Would you like to execute this string as a dry run [y|n]: " input
-    if [[ "$read" =~ ^[Yy] ]]
+    if [[ "$input" =~ ^[Yy] ]]
     then
         eval "$runnable \-\-dry-run"
     fi
