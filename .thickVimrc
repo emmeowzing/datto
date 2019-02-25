@@ -8,6 +8,7 @@ set rtp+=~/.vim/bundle/Vundle.vim
 
 call vundle#begin()
 
+Plugin 'jiangmiao/auto-pairs'            " Autocomplete braces/pairs.
 Plugin 'nathanaelkane/vim-indent-guides' " Nicer indent guides.
 Plugin 'terryma/vim-multiple-cursors'    " Multiple cursors.
 

@@ -38,9 +38,9 @@ checkInstalled()
 # Get valid user input for various things.
 getIO()
 {
-    if [ $# -ge 1 ]
+    if [ $# -lt 1 ]
     then
-        printf "** ERROR: \`getIO\` expected 1 argument, received %s\\n" \
+        printf "** ERROR: \`getIO\` expected >=1 argument, received %s\\n" \
             "$#" 1>&2
         exit 1
     fi
@@ -55,17 +55,18 @@ getIO()
         if ! [ "$input" ]
         then
             printf "** ERROR: must enter non-empty string\\n" 1>&2
+            continue
         fi
 
         shift
 
         # Ensure this I/- satisfies all conditions.
-        for f in $# "last_";
+        for f in "$@" "last_";
         do
             if [ "$f" == "last_" ]
             then
                 break 2
-            elif ! [ "$($f "$input")" ]
+            elif ! $f "$input"
             then
                 break
             fi
@@ -78,12 +79,56 @@ getIO()
 
 ##
 # Condition on CPUs to pass to `getIO`.
+# 
+# TODO: check against CPUs already taken up by active VMs.
 getCPUs()
 {
-    local cpu
-    declare -i cpu
-
+    local cpu hostCPUs
+    declare -i cpu hostCPUs
     
+    cpu="$1"
+    hostCPUs="$(nproc --ignore 2)"
+
+    if [ "$cpu" -gt "$hostCPUs" ]
+    then
+        printf "**WARNING: number of available host CPUs is %s\\n" \
+            "$hostCPUs" 1>&2
+        if [[ "$(getIO "Proceed? [y|n]")" =~ ^[yY] ]]
+        then
+            printf "**WARNING: proceeding with %s CPUs\\n" "$cpu" 1>&2
+        else
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+
+##
+# 
+getDisks()
+{
+    if ! [[ "$(getIO "Would you like to add disks now [y|n]")" =~ ^[Yy] ]]
+    then
+        return 1
+    fi
+
+    local disks previous
+    declare -a disks
+
+    disks=()
+    previous=true   # Indicate whether we require an installer
+
+    while true
+    do
+        disks+=("--disk")
+
+        if [[ $previous && "$(getIO "Is this an installer? [y|n]")" =~ ^[Yy] ]]
+        then
+            
+        fi
+    done
 }
 
 
@@ -91,7 +136,7 @@ getCPUs()
 # Set up the VM with variables.
 setup()
 {
-    local name mem hostCPUs cpu disks ans installer
+    local name mem hostCPUs cpu disks ans installer previous
     declare -i mem hostCPUs cpu 
     declare -a disks
 
@@ -100,83 +145,12 @@ setup()
 
     name="$(getIO "Provide the name")"
     mem="$(getIO "Provide the memory (in MiB)")"
+    cpu="$(getIO "Provide the number of CPUs" getCPUs)"
+    disks="$(getDisks)"
 
-    # TODO: check against CPUs already taken up by active VMs.
-    # Wrapping `getIO` here because of the additional complexity.
-    while true
-    do
-        cpu="$(getIO "Provide the number of CPUs")"
-        if [ "$cpu" -gt "$hostCPUs" ]
-        then
-            printf "**WARNING: number of available host CPUs is %s\\n" \
-                "$hostCPUs" 1>&2
-            if [[ "$(getIO "proceed? [y|n]")" =~ ^[yY] ]]
-            then
-                printf "**WARNING: proceeding with %s CPUs\\n" "$cpu" 1>&2
-                break
-            fi
-        fi
-        break
-    done
+    disks[0]="${disks[0]} cdrom=$path,size=$size"
 
-    # Add disks.
-    disks=()
-    previous=false
-
-    read -r -p "Would you like to add disks now [y|n]: " ans
-    
-    if [[ "$ans" =~ ^[Yy] ]]
-    then
-        # Loop until we're done adding disks.
-        while true
-        do
-            disks+=("--disk")
-
-            # Set up the installer disk/ISO/img.
-            if ! [ $previous ]
-            then
-                read -r -p "Is this an installer? [y|n]" installer
-
-                if [ "$installer" ]
-                then
-                    # Get a valid installer.
-                    while true
-                    do
-                        read -r -p "Enter a valid file path: " path
-                        pathM="${path##*.}"
-
-                        if ! [ -e "$path" ]
-                        then
-                            printf "**ERROR: enter a valid path, received %s\\n" \
-                                "$path"
-                        elif [ "$pathM" != "iso" ] || [ "$pathM" != "img" ]
-                        then
-                            read -r -p "Extension is $pathM, continue [y|n]"
-                        else
-                            break
-                        fi
-                    done
-
-                    size="$(getIO "size of installer disk")"
-
-                    # Update disks array, putting this cdrom first ofc.
-                    disks[0]="${disks[0]} cdrom=$path,size=$size"
-                fi
-                previous=true
-            fi
-
-            # Handle adding arbitrary disks.
-            while true
-            do
-                size="$(getIO "the size (GiB)")"
-            done
-
-            #disks[
-        done
-    fi
-
-    printf "virt-install --name %s --memory %s --arch %s --vcpus %s --cpu host
-        --security type=dynamic --clock=localtime " \
+    printf "virt-install --name %s --memory %s --arch %s --vcpus %s --cpu host --security type=dynamic --clock=localtime " \
         "$name" "$mem" "$(uname -m)" "$cpu"
 }
 
