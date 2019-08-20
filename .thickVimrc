@@ -7,17 +7,19 @@ filetype off
 set rtp+=~/.vim/bundle/Vundle.vim
 
 call vundle#begin()
-
+Plugin 'tpope/vim-fugitive'              " GitHub plugin.
 Plugin 'jiangmiao/auto-pairs'            " Autocomplete braces/pairs.
 Plugin 'nathanaelkane/vim-indent-guides' " Nicer indent guides.
 Plugin 'terryma/vim-multiple-cursors'    " Multiple cursors.
-
+Plugin 'airblade/vim-gitgutter'
+"Plugin 'tmhedberg/simpylfold'            " Folds
 Plugin 'VundleVim/Vundle.vim'
 call vundle#end()            " required
 
 filetype plugin indent on
 syntax enable
 
+set foldmethod=manual " set folding to manual; use `zf` to fold, `zo` to open
 set nocompatible
 set tabstop=4       " set tabs to 4 spaces
 set softtabstop=4   " number of spaces in tab when editing
@@ -45,3 +47,4 @@ let g:indent_guides_enable_on_vim_startup = 1  " Enable indent guides by default
 set ts=4 sw=4 et
 let g:indent_guides_start_level = 2
 let g:indent_guides_guide_size = 1
+let g:SimpylFold_docstring_preview = 1  " Show docstrings by default with folds.
