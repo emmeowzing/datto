@@ -49,14 +49,5 @@ let g:indent_guides_start_level = 2
 let g:indent_guides_guide_size = 1
 "let g:SimpylFold_docstring_preview = 1  " Show docstrings by default with folds.
 
-" Persist folds, even after closing Vim.
-" https://til.hashrocket.com/posts/17c44eda91-persistent-folds-between-vim-sessions
-
-augroup AutoSaveFolds
-  autocmd!
-  autocmd BufWinLeave * mkview
-  autocmd BufWinEnter * silent loadview
-augroup END
-
 " Unfuck screen after folding.
 nnoremap U :syntax sync fromstart<cr>:redraw!<cr>
